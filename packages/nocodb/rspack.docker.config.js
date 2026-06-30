@@ -1,6 +1,9 @@
 // Production backend bundle config used by Dockerfile.zh to rebuild the server
 // bundle (docker/index.js) from source, mirroring the official build:
-//   - entry: src/run/docker.ts (the standalone server bootstrap the image runs)
+//   - entry: src/run/local.ts  (the official Docker entry: it serves the bundled
+//     nc-gui from __dirname/nc-gui and sets NC_GUI_DIST_PATH so the GUI
+//     middleware serves the SPA; src/run/docker.ts does neither and also forces
+//     DEBUG=xc*, so it is NOT the right entry for the image).
 //   - output: docker/index.js  (the file /usr/src/appEntry/start.sh executes)
 //   - minimize:false + nodeExternals so runtime deps resolve from the official
 //     image's node_modules (unchanged for the same release tag).
@@ -11,7 +14,7 @@ const { rspack } = require('@rspack/core');
 const nodeExternals = require('webpack-node-externals');
 
 module.exports = {
-  entry: './src/run/docker.ts',
+  entry: './src/run/local.ts',
   module: {
     rules: [
       {

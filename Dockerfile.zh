@@ -18,10 +18,32 @@ RUN pnpm install --filter "nc-gui..." \
 RUN cd packages/nc-gui \
  && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=6144 npx nuxi generate
 
-# Stage 2: overlay the freshly built frontend onto the official image.
-# Pin by digest to the exact backend running in prod (release 2026.06.1) so the
-# frontend/backend internal-operation contract stays in lockstep (no latest drift).
+# Stage 1b: rebuild the backend server bundle (docker/index.js) from the same
+# release source + our backend patches (e.g. attachment MIME normalization).
+# Mirrors the official build: entry src/run/local.ts -> docker/index.js, with
+# nodeExternals so runtime deps still resolve from the official image's
+# unchanged node_modules (see rspack.docker.config.js for details).
+FROM node:24-bookworm AS backend
+
+WORKDIR /repo
+
+RUN npm install -g pnpm@10.16.1
+
+COPY . .
+
+RUN pnpm install \
+ && pnpm --filter nocodb-sdk run build \
+ && pnpm run integrations:build \
+ && pnpm --filter nocodb run registerIntegrations
+
+RUN cd packages/nocodb \
+ && NODE_OPTIONS=--max-old-space-size=4096 npx rspack --config rspack.docker.config.js
+
+# Stage 2: overlay the freshly built frontend + patched backend onto the
+# official image. Pin by digest to the exact backend running in prod (release
+# 2026.06.1) so the runtime node_modules match the rebuilt bundle's externals.
 FROM nocodb/nocodb@sha256:e5a6ac9cfa59f78b333b491efde4b6cd60bb866b49c76daf92295ef359ef710e
 
 RUN rm -rf /usr/src/app/docker/nc-gui
 COPY --from=gui /repo/packages/nc-gui/.output/public /usr/src/app/docker/nc-gui
+COPY --from=backend /repo/packages/nocodb/docker/index.js /usr/src/app/docker/index.js

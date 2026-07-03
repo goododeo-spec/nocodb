@@ -82,6 +82,16 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 - 完整构建：唯一构建文件是 `Dockerfile.zh`（frontend 从源码 `nuxi generate`，backend 从源码 `rspack` 重建 `docker/index.js`，两者一起 overlay 到官方基础镜像 digest 之上）。历史上的 `Dockerfile.zh4/zh5/zh6` 属于逐层 overlay 增量构建，已归档，不再作为生产构建路径（见仓库 `archive/overlay-builds/` 或对应 commit 历史）。
 - 构建脚本：`build.sh <release-tag>`，产物打不可变 tag `nocodb-zh:<release-tag>-<n>+git.<sha>`。
 
+### `zh-release/2026.06.1` 已建立（10 个 cherry-pick，线性、无 merge）
+
+从 tag `2026.06.1` cherry-pick 顺序：`pr/browser-language-detect` → `pr/field-type-i18n` → `perf/disable-prefetch-lazy-chunks` → `fix/attachment-mimetype-backfill` → `fix/attachment-reload-crash-guard`（2 个 commit）→ `deploy/zh-build-config`（3 个 commit）→ 临时 Crowdin 覆盖（86 条散落翻译）。
+
+冲突记录（均为文件内容自然增长导致，非逻辑冲突）：
+- `packages/nc-gui/lang/en.json`：cherry-pick `pr/field-type-i18n` 时与 tag 基线的 key 顺序冲突，手工合并保留双方新增 key。
+- `packages/nocodb/rspack.docker.config.js`：该文件历史上被意外夹带进 `fix/attachment-mimetype-backfill` 提交（补丁归类瑕疵，未拆分历史），导致 cherry-pick `deploy/zh-build-config` 的入口切换 commit 时报 modify/delete 冲突；已用该 commit 的最终版本整体落地，`deploy/zh-build-config` 分支上该文件是完整新增而非增量修改。
+
+**已知与当前线上 `zh6` 的预期差异**（非漂移，是待发布的改进）：`pr/field-type-i18n` 分支（`21d4a4a`）中的字段类型翻译比线上 `zh6` 实际部署的版本（源自更早的组合 commit `3f50d9f`）更新，措辞更贴近飞书多维表格命名（如"单行文本"→"文本"、"合作者"→"人员"、"URL"→"超链接"），且补了 `LinkToAnotherRecord`/`RichText`/`QrCode` 等此前缺失的 key。下次从 `zh-release/2026.06.1` 构建并发布时，这批更好的翻译会随之上线——**这是预期行为**，发布前需要在 changelog/自测里提一句"字段类型中文名有调整"，避免被当成意外改动。
+
 ## 升级手册（上游发新版时）
 
 1. 确认新版本有对应的**官方 Docker 镜像**发布（不只是 GitHub tag）。

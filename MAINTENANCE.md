@@ -140,7 +140,10 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 - 不迁移服务器、不动数据库、不重新触碰已验证通过的附件数据。
 - 不引入 CDN（已评估无收益，新加坡单区延迟已可接受）。
 
-## （建议）CI 与巡检（可选增强，未实施）
+## （建议）CI 与巡检
 
-- GitHub Actions：push/PR 到 `zh-release/*` 自动跑 `Dockerfile.zh` build smoke 或 frontend/backend 构建 smoke，尽早暴露"源码构建失败/文件缺失"。是否推送到 GHCR 供服务器直接 `docker pull`，视后续需要再决定（需要 registry secret）。
-- 定期（人工或用 loop 类自动化）执行上方"补丁清单 A 巡检命令"，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）。
+- GitHub Actions 工作流已写好：`.github/workflows/zh-build-smoke.yml`（本地分支 `ci/zh-build-smoke`，基于 tag `2026.06.1`）。push/PR 到 `zh-release/**`、`deploy/**`、`tooling/**` 时用 `docker build -f Dockerfile.zh` 完整构建，并串联 `selfcheck.sh` + `selfcheck-attachments.sh`（存在即跑），不推送任何 registry（未配置 secret）。
+  - **未推送到 GitHub**：用于本次维护操作的 GitHub PAT 缺少 `workflow` scope，推送 `.github/workflows/*.yml` 被 remote 拒绝（`refusing to allow a Personal Access Token to create or update workflow ... without workflow scope`）。commit 已导出为 patch：`/tmp/0001-ci-add-build-only-smoke-workflow-for-zh-release-depl.patch`。
+  - **需要人工处理**：给 PAT 补上 `workflow` scope 后，`git push origin ci/zh-build-smoke`（分支已在本地 `nocodb-src` 检出里），或者直接在 GitHub 网页端把 `archive`/该 patch 内容手工建一个 PR。
+  - 后续如果要推 GHCR 供服务器 `docker pull`（替代当前"服务器就地构建"），需要额外加 registry secret，视需要再做。
+- 补丁清单 A 巡检命令（见上）建议定期跑，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）+ 补丁清单 C（Crowdin 合并前）。可以配 `ci/zh-build-smoke` 里加一个 `schedule` cron job 跑巡检 + 发通知（未实现，属于可选增强的可选增强）。

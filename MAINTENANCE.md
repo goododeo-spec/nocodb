@@ -92,6 +92,15 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 
 **已知与当前线上 `zh6` 的预期差异**（非漂移，是待发布的改进）：`pr/field-type-i18n` 分支（`21d4a4a`）中的字段类型翻译比线上 `zh6` 实际部署的版本（源自更早的组合 commit `3f50d9f`）更新，措辞更贴近飞书多维表格命名（如"单行文本"→"文本"、"合作者"→"人员"、"URL"→"超链接"），且补了 `LinkToAnotherRecord`/`RichText`/`QrCode` 等此前缺失的 key。下次从 `zh-release/2026.06.1` 构建并发布时，这批更好的翻译会随之上线——**这是预期行为**，发布前需要在 changelog/自测里提一句"字段类型中文名有调整"，避免被当成意外改动。
 
+## 可复现构建（`build.sh` + `selfcheck.sh`）
+
+来源分支 `tooling/build-scripts`（已 cherry-pick 进 `zh-release/2026.06.1`）。仓库根目录：
+
+- `build.sh <release-tag>`：要求当前分支必须是干净的 `zh-release/<release-tag>`（工作区有未提交改动会直接拒绝构建——呼应铁律 3"服务器不是构建真相源"）。用 `docker build -f Dockerfile.zh` 构建，自动计算下一个构建序号 `N`，打不可变 tag `nocodb-zh:<release-tag>-<n>+git.<sha>`，然后自动跑 `selfcheck.sh`（后续接入 `selfcheck-attachments.sh`，见 selfcheck 附件专项一节）。
+- `selfcheck.sh <image-tag>`：通用化自 `mime-fix/selfcheck_zh6.sh`（原来的四份 `selfcheck_zh3~6.sh` 硬编码各自版本 tag，已归档到 `archive/overlay-builds/`）。用**一次性** postgres + 该镜像跑：健康检查 → GUI 是否正常返回（防 zh6 那次"前端不渲染"回归）→ 迁移日志无报错 → 注册/登录 → 上传 `Content-Type: text/plain` 的 `.mp4` 验证 MIME 回填生效。全程隔离容器/网络，退出时清理，不碰生产。
+- 已在服务器上用生产 `nocodb-zh:2026.06.1-zh6` 镜像实测通过：`ALL_SELFCHECKS_PASSED`（health 200 / GUI 200 / MIME 回填 `text/plain` → `video/mp4`）。
+- 旧的 `Dockerfile.zh4/zh5/zh6` overlay 增量构建 + 对应版本 selfcheck 脚本已归档至 `archive/overlay-builds/`，附 `README.md` 说明退役原因，不再用于生产构建。
+
 ## 升级手册（上游发新版时）
 
 1. 确认新版本有对应的**官方 Docker 镜像**发布（不只是 GitHub tag）。

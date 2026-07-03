@@ -9,7 +9,7 @@
 # cherry-pick unmerged topic branches + deploy/zh-build-config + temp Crowdin
 # overlay). This script does not create that branch; it only builds from it.
 #
-# Produces an immutable tag: nocodb-zh:<release-tag>-<n>+git.<sha>
+# Produces an immutable tag: nocodb-zh:<release-tag>-<n>-git.<sha>
 # where <n> increments per release-tag and <sha> is the exact commit built.
 # Never overwrites an existing tag (rebuilds always get a new <n>).
 set -euo pipefail
@@ -39,16 +39,16 @@ SHA="$(git rev-parse --short=12 HEAD)"
 
 # Find the next free build number N for this release tag.
 N=1
-while docker image inspect "nocodb-zh:${RELEASE_TAG}-${N}+git.${SHA}" >/dev/null 2>&1; do
+while docker image inspect "nocodb-zh:${RELEASE_TAG}-${N}-git.${SHA}" >/dev/null 2>&1; do
   N=$((N + 1))
 done
 # Also skip N already used by a *different* sha for this release tag, so the
 # human-facing "-N" ordinal still increases monotonically across rebuilds.
-while docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^nocodb-zh:${RELEASE_TAG}-${N}+git\."; do
+while docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^nocodb-zh:${RELEASE_TAG}-${N}-git\."; do
   N=$((N + 1))
 done
 
-TAG="nocodb-zh:${RELEASE_TAG}-${N}+git.${SHA}"
+TAG="nocodb-zh:${RELEASE_TAG}-${N}-git.${SHA}"
 
 echo "[*] building $TAG from $EXPECTED_BRANCH @ $SHA"
 docker build -f Dockerfile.zh -t "$TAG" .

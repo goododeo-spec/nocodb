@@ -1,0 +1,116 @@
+# goododeo-spec/nocodb 定制镜像维护索引
+
+本文件是 `nocodb-zh` 定制镜像（中文本地化 + 附件/性能修复）的唯一维护索引。任何补丁、配置、升级操作都应先更新本文件。
+
+维护背景与目标见对应 chat 计划：`NocoDB 定制镜像可持续维护流程`。
+
+## 铁律（任何操作前必读）
+
+1. **单一版本基准**：前端源码、后端 bundle、`nocodb/nocodb` 官方镜像 digest 必须对应**同一个 release tag**。禁止把 `develop` 分支的改动 cherry-pick 到面向 release 运行的构建里（历史教训：2026-06 曾发生 develop 前端装到 release 后端，导致所有数据表打不开）。
+2. **先有回滚再动手**：任何 fork / 构建 / 部署操作之前，当前线上镜像必须处于"可一键回退"状态。回滚基线见下方"回滚基线"一节。
+3. **服务器不是构建真相源**：`/opt/nocodb-build`（部署服务器上的构建工作区）只允许 `git fetch` + `checkout` 到 fork 的 `zh-release/*` 分支来构建镜像，**禁止**在服务器上手工 `scp` 替换源码文件或直接编辑后再打包（历史上 PR #14196 的改动就是先在服务器手工改的，之后才补提交到 fork，属于事后补救，不是常态流程）。
+
+## 当前线上状态（截至本文档写入时）
+
+| 项目 | 值 |
+|---|---|
+| 生产镜像 | `nocodb-zh:2026.06.1-zh6` |
+| 镜像 digest | `sha256:677e07e2508252776f1dd7a70cc1e080d9b86108f394f40e661ce58d1e45762d` |
+| 对应官方基础镜像 | `nocodb/nocodb@sha256:e5a6ac9cfa59f78b333b491efde4b6cd60bb866b49c76daf92295ef359ef710e`（release `2026.06.1`） |
+| 部署位置 | `root@159.65.133.196:/opt/nocodb`（docker compose：`nocodb`/`worker`/`postgres`/`redis`/`caddy`） |
+| 对象存储 | DigitalOcean Spaces（新加坡区，S3 兼容），附件走 `url` 类型 |
+
+## 回滚基线
+
+冻结于服务器 `/opt/nocodb/baselines/2026.06.1-zh6/`，包含：
+- `docker-compose.yml`、`Caddyfile` 快照
+- `image-digests.txt`（zh1~zh6 全部历史镜像 digest，均保留在本机，未清理）
+- `env-keys.txt`（仅键名，不含密钥值）
+- `ROLLBACK.md`（一键回滚命令 + 冒烟验证命令）
+
+**规则**：每次升级构建产出新 tag 前，先确认这份基线仍然有效（即 `nocodb-zh:2026.06.1-zh6` 镜像仍在本机 `docker images` 中）。升级成功并稳定运行 ≥ 3 天后，才可以把基线滚动更新为新版本（旧基线不删除，重命名归档）。
+
+## 补丁清单（三类）
+
+### A. 可上游代码补丁（5 个 PR，全部 OPEN，合并后即删除本地对应分支/cherry-pick）
+
+| 分支 | PR | 状态 | 内容 | drop 条件 |
+|---|---|---|---|---|
+| `pr/browser-language-detect` | [#14171](https://github.com/nocodb/nocodb/pull/14171) | OPEN | 浏览器语言自适应（首次进入按系统/浏览器语言而非固定英文） | PR 合并进 `develop` |
+| `pr/field-type-i18n` | [#14172](https://github.com/nocodb/nocodb/pull/14172) | OPEN | 字段类型名 i18n（`getUidtI18nName`） | PR 合并进 `develop` |
+| `perf/disable-prefetch-lazy-chunks` | [#14180](https://github.com/nocodb/nocodb/pull/14180) | OPEN | 关闭 Nuxt 对懒加载 chunk 的激进 prefetch（首屏性能） | PR 合并进 `develop` |
+| `fix/attachment-mimetype-backfill` | [#14183](https://github.com/nocodb/nocodb/pull/14183) | OPEN | 上传时按扩展名回填 mimetype，修复 `text/plain` 误判 | PR 合并进 `develop` |
+| `fix/attachment-reload-crash-guard` | [#14196](https://github.com/nocodb/nocodb/pull/14196) | OPEN | 视频不再被当图片加载（grid/carousel/thumbnail 三处 gate）+ `loadRow`/`isURLExpired` 崩溃与误报守卫 | PR 合并进 `develop` |
+
+> `i18n-improvements` 分支（commit `dfa48b4`）是 #14171/#14172 拆分前的合并版本，**已废弃**，不再使用，仅作历史记录保留，不参与 cherry-pick。
+
+巡检命令（人工或后续 CI 定期跑）：
+
+```bash
+gh pr view 14171 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14172 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14180 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14183 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
+```
+
+### B. 部署专用构建配置（长期保留，不上游，收纳进 `deploy/zh-build-config` 分支）
+
+- rspack 后端构建入口改为 `src/run/local.ts`（对应 fork 分支 `zh-build-2026.06.1` 的 commit）。
+- vendored 2 个后端文件（附件 MIME 相关，随 backend bundle 重建带入）。
+- `Dockerfile.zh`：stage2 官方基础镜像按 digest pin 到与生产 release 一致的版本。
+
+### C. Crowdin 翻译（临时覆盖，非长期补丁）
+
+- 主线策略：散落漏译的 86 条通过 [Crowdin 项目](https://crowdin.com) 走官方翻译流程提交。
+- **临时覆盖**：在 Crowdin 合入并随官方发布下发之前，生产镜像里保留一份本地 `packages/nc-gui/lang/zh-Hans.json` 补丁（覆盖同一批 86 条）。
+- **删除条件**：Crowdin 上的翻译被官方合并且出现在某个 release tag 的 `zh-Hans.json` 中之后，下一次升级构建时移除本地覆盖补丁，改用官方文件。
+- 状态：⏳ 待 Crowdin 侧合并确认（未有自动化跟踪，需人工登录 Crowdin 项目检查）。
+
+## 运行时配置（记档，不是补丁，随镜像/compose 走）
+
+| 配置 | 值 | 用途 |
+|---|---|---|
+| `NC_THUMBNAIL_MAX_SIZE` | `10485760`（10MB） | 默认 3MB 上限会导致较大图片不返回缩略图 URL，调大到覆盖实际图片大小分布 |
+| Caddy `encode zstd gzip` | 开启 | 静态资源压缩 |
+| Caddy `Cache-Control` (immutable) | `public, max-age=31536000, immutable` + `defer` | `/_nuxt/*` 等内容哈希文件长缓存 |
+| Caddy HTTP/3 | 开启（`443/udp` 映射） | 降低高延迟链路的握手开销 |
+
+## 集成分支与构建（详见下方"升级手册"）
+
+- 集成分支命名：`zh-release/<release-tag>`（例如 `zh-release/2026.06.1`），从**官方镜像对应的 release tag** 建立，仅用 `cherry-pick` 叠加补丁 A + B + C，不做 merge，保持线性、可逐条 drop。
+- 完整构建：唯一构建文件是 `Dockerfile.zh`（frontend 从源码 `nuxi generate`，backend 从源码 `rspack` 重建 `docker/index.js`，两者一起 overlay 到官方基础镜像 digest 之上）。历史上的 `Dockerfile.zh4/zh5/zh6` 属于逐层 overlay 增量构建，已归档，不再作为生产构建路径（见仓库 `archive/overlay-builds/` 或对应 commit 历史）。
+- 构建脚本：`build.sh <release-tag>`，产物打不可变 tag `nocodb-zh:<release-tag>-<n>+git.<sha>`。
+
+## 升级手册（上游发新版时）
+
+1. 确认新版本有对应的**官方 Docker 镜像**发布（不只是 GitHub tag）。
+2. `git fetch upstream --tags`，基于官方镜像对应的 **release tag `vNext`** 新建 `zh-release/vNext`（从 upstream tag 建，不从 develop 建）。
+3. 对补丁清单 A 逐个检查：
+   - 已被上游合并 → 直接丢弃，不 cherry-pick，更新本文件状态表。
+   - 仍未合并 → 从对应分支 cherry-pick 到 `zh-release/vNext`，解决冲突（若与 `vNext` 冲突较大，先评估该补丁是否仍适用）。
+4. cherry-pick `deploy/zh-build-config`（补丁清单 B）到 `zh-release/vNext`。
+5. 若 Crowdin 尚未合并，cherry-pick 临时 Crowdin 覆盖补丁（补丁清单 C）。
+6. 修改 `Dockerfile.zh` stage2，把官方基础镜像 digest 重新 pin 到 `vNext` 对应的 digest（**铁律 1**：查清楚该 digest 确实对应 `vNext` release，而不是 `latest`/`develop` 构建）。
+7. `build.sh vNext` 完整构建 → 跑 selfcheck（含附件专项，见下）。
+8. selfcheck 通过后灰度切换（先切 `worker`，观察，再切 `nocodb`），冒烟验证（登录、开表、图片/视频附件加载、语言自动检测）。
+9. 稳定运行后更新本文件的"当前线上状态"表 + 补丁状态表；旧 baseline 归档保留、新 baseline 按"冻结基线"流程重新生成。
+10. 任一步失败：按"回滚基线"一节的命令立即退回，不在生产上尝试就地修复。
+
+### selfcheck 附件专项（升级必跑，防止本轮 bug 回滚）
+
+- 上传一张 >3MB 的图片，调用 API 确认返回 `thumbnails.tiny` / `thumbnails.small` / `thumbnails.card_cover` 三档 URL，且每个 URL 直接请求返回 `200`。
+- 上传一个视频文件，确认 API 响应**不**包含 `thumbnails` 字段。
+- 静态资源里 grep 确认非图片 gate 修复仍在：`packages/nc-gui/components/smartsheet/grid/canvas/cells/Attachment.ts` 含 `isImage(` 调用，`packages/nc-gui/components/cell/attachment/Preview/Thumbnail.vue` 的 `srcs` 计算属性含 `isImage(` 短路判断。
+- 打开一条同时有图片+视频附件的记录的 carousel，确认不出现"未找到记录"误报 toast。
+
+## 未做/不做的事
+
+- 不改 NocoDB 业务代码之外的范围（本轮 bug 均已提交对应 PR，见补丁清单 A）。
+- 不迁移服务器、不动数据库、不重新触碰已验证通过的附件数据。
+- 不引入 CDN（已评估无收益，新加坡单区延迟已可接受）。
+
+## （建议）CI 与巡检（可选增强，未实施）
+
+- GitHub Actions：push/PR 到 `zh-release/*` 自动跑 `Dockerfile.zh` build smoke 或 frontend/backend 构建 smoke，尽早暴露"源码构建失败/文件缺失"。是否推送到 GHCR 供服务器直接 `docker pull`，视后续需要再决定（需要 registry secret）。
+- 定期（人工或用 loop 类自动化）执行上方"补丁清单 A 巡检命令"，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）。

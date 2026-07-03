@@ -147,3 +147,4 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
   - **需要人工处理**：给 PAT 补上 `workflow` scope 后，`git push origin ci/zh-build-smoke`（分支已在本地 `nocodb-src` 检出里），或者直接在 GitHub 网页端把 `archive`/该 patch 内容手工建一个 PR。
   - 后续如果要推 GHCR 供服务器 `docker pull`（替代当前"服务器就地构建"），需要额外加 registry secret，视需要再做。
 - 补丁清单 A 巡检命令（见上）建议定期跑，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）+ 补丁清单 C（Crowdin 合并前）。可以配 `ci/zh-build-smoke` 里加一个 `schedule` cron job 跑巡检 + 发通知（未实现，属于可选增强的可选增强）。
+  - 本次巡检结果（写文档当天）：#14171 / #14172 / #14180 / #14183 / #14196 全部仍是 `OPEN`，无需从补丁清单移除任何项。

@@ -103,18 +103,25 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 
 ## 升级手册（上游发新版时）
 
-1. 确认新版本有对应的**官方 Docker 镜像**发布（不只是 GitHub tag）。
-2. `git fetch upstream --tags`，基于官方镜像对应的 **release tag `vNext`** 新建 `zh-release/vNext`（从 upstream tag 建，不从 develop 建）。
-3. 对补丁清单 A 逐个检查：
-   - 已被上游合并 → 直接丢弃，不 cherry-pick，更新本文件状态表。
-   - 仍未合并 → 从对应分支 cherry-pick 到 `zh-release/vNext`，解决冲突（若与 `vNext` 冲突较大，先评估该补丁是否仍适用）。
-4. cherry-pick `deploy/zh-build-config`（补丁清单 B）到 `zh-release/vNext`。
-5. 若 Crowdin 尚未合并，cherry-pick 临时 Crowdin 覆盖补丁（补丁清单 C）。
-6. 修改 `Dockerfile.zh` stage2，把官方基础镜像 digest 重新 pin 到 `vNext` 对应的 digest（**铁律 1**：查清楚该 digest 确实对应 `vNext` release，而不是 `latest`/`develop` 构建）。
-7. `build.sh vNext` 完整构建 → 跑 selfcheck（含附件专项，见下）。
-8. selfcheck 通过后灰度切换（先切 `worker`，观察，再切 `nocodb`），冒烟验证（登录、开表、图片/视频附件加载、语言自动检测）。
-9. 稳定运行后更新本文件的"当前线上状态"表 + 补丁状态表；旧 baseline 归档保留、新 baseline 按"冻结基线"流程重新生成。
-10. 任一步失败：按"回滚基线"一节的命令立即退回，不在生产上尝试就地修复。
+前提：镜像在部署服务器（`root@159.65.133.196`）**就地构建**（无 registry/CI 推送，`build.sh` 直接在服务器的 fork 检出目录里跑 `docker build`），这是当前采用的方式（见"不做的事"之外的现状说明）——第 8 步默认按这个假设写；如果后续接了 §（建议）CI 与巡检 里的 GHCR 推送，再改成 `docker pull`。
+
+1. **冻结新 baseline 前先确认旧 baseline 仍可回滚**：检查 `/opt/nocodb/baselines/<当前版本>/` 存在且 `docker images` 里对应 tag 还在。
+2. 确认上游新版本有对应的**官方 Docker 镜像**发布（不只是 GitHub tag）：`docker pull nocodb/nocodb:<vNext候选tag>` 试拉，记下其 digest。
+3. 本地 fork 工作区：`git fetch upstream --tags`，基于该 digest 对应的 **release tag `vNext`** 新建 `zh-release/vNext`（`git checkout -b zh-release/vNext vNext`，从 upstream tag 建，不从 develop 建）。
+4. 对补丁清单 A 逐个用 `gh pr view <n> --repo nocodb/nocodb --json state,mergedAt` 检查：
+   - 已合并（`state=MERGED`）→ 直接丢弃，不 cherry-pick，更新本文件补丁状态表，删除对应本地 topic 分支。
+   - 仍未合并 → `git cherry-pick <commit>` 到 `zh-release/vNext`（挑单个补丁 commit，不是整条分支历史，做法同本次 `zh-release/2026.06.1` 的建立过程），解决冲突（多是 lang json key 顺序类的自然增量冲突，手工合并保留双方新增内容；若冲突涉及实际逻辑分歧，先评估该补丁是否仍适用于 `vNext`）。
+5. `git cherry-pick`（按 `deploy/zh-build-config` 分支的 3 个 commit 逐个来，不要整分支 merge）到 `zh-release/vNext`（补丁清单 B）。
+6. `git cherry-pick`（按 `tooling/build-scripts` 分支的 commit）到 `zh-release/vNext`，带上 `build.sh` / `selfcheck.sh` / `selfcheck-attachments.sh`。
+7. 若 Crowdin 仍未合并，cherry-pick 临时 Crowdin 覆盖补丁（补丁清单 C，来自 `crowdin/` 目录里记录的翻译源）。
+8. 编辑 `zh-release/vNext` 上的 `Dockerfile.zh` stage2，把官方基础镜像 digest 重新 pin 到第 2 步记录的 `vNext` digest（**铁律 1**：必须是 release 镜像 digest，不是 `latest`/`develop` 构建产物）。
+9. push `zh-release/vNext` 到 fork。
+10. 登录服务器，把 `/opt/nocodb-build` fast-forward 到 `zh-release/vNext`（`git fetch origin && git checkout zh-release/vNext`），确认 `git status` 干净（`build.sh` 会拒绝脏工作区）。
+11. 服务器上执行 `./build.sh vNext`：完整构建（frontend `nuxi generate` + backend `rspack` + overlay 官方 digest）→ 自动跑 `selfcheck.sh`（含链式的 `selfcheck-attachments.sh`）。任一 `[FAIL]` 则停止，不进入第 12 步。
+12. selfcheck 全部 `PASSED` 后灰度切换：先改 `docker-compose.yml` 里 `worker` 服务的 image tag 为新构建产物，`docker compose up -d worker`，观察日志/无报错；再切 `nocodb` 服务同样操作。
+13. 人工冒烟：登录、打开一张已有数据表、上传并预览一张图片和一个视频附件（确认走 carousel 不出现"未找到记录"误报）、检查界面语言是否按浏览器语言自动切换、检查字段类型中文名。
+14. 稳定运行（建议观察 ≥ 3 天无异常）后：更新本文件"当前线上状态"表 + 补丁状态表；按"回滚基线"一节的步骤，把新 tag 的 compose/Caddyfile/image-digests 快照写入 `/opt/nocodb/baselines/vNext/`，旧 baseline 目录保留不删（按时间戳/版本号区分，供更早版本回退用）。
+15. 任一步失败：立即执行"回滚基线"一节的一键回滚命令退回上一个稳定 tag，**不在生产环境上尝试就地修复**（呼应铁律 2、3）。
 
 ### selfcheck 附件专项（升级必跑，防止本轮 bug 回滚）
 

@@ -118,10 +118,14 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 
 ### selfcheck 附件专项（升级必跑，防止本轮 bug 回滚）
 
-- 上传一张 >3MB 的图片，调用 API 确认返回 `thumbnails.tiny` / `thumbnails.small` / `thumbnails.card_cover` 三档 URL，且每个 URL 直接请求返回 `200`。
-- 上传一个视频文件，确认 API 响应**不**包含 `thumbnails` 字段。
-- 静态资源里 grep 确认非图片 gate 修复仍在：`packages/nc-gui/components/smartsheet/grid/canvas/cells/Attachment.ts` 含 `isImage(` 调用，`packages/nc-gui/components/cell/attachment/Preview/Thumbnail.vue` 的 `srcs` 计算属性含 `isImage(` 短路判断。
-- 打开一条同时有图片+视频附件的记录的 carousel，确认不出现"未找到记录"误报 toast。
+已实现为 `selfcheck-attachments.sh <host_port> <token> <repo_root> <app_container>`（`tooling/build-scripts` 分支，已 cherry-pick 进 `zh-release/2026.06.1`），由 `build.sh` 在跑完基础 `selfcheck.sh` 后自动串联执行（复用同一个still-running 实例，`selfcheck.sh` 现已把 `NC_THUMBNAIL_MAX_SIZE=10485760` 写进吞吐量实例的启动 env，与生产运行时配置对齐）：
+
+- 建一个临时 base + 带 Attachment 字段的表；用镜像自带的 `sharp`（`docker exec` 到刚启动的 app 容器里跑）生成一张 >3MB 的测试 JPEG，上传后插入到该字段。轮询读回该行，确认 `thumbnails.tiny` / `thumbnails.small` / `thumbnails.card_cover` 三档都出现，且逐个请求其 `signedPath` 返回 `200`（对生成时序做了重试，避免三档文件写入非原子导致的偶发 404）。
+- 上传一个 `.mp4`，同样流程插入行、读回，确认响应里**不**包含 `thumbnails` 字段。
+- 启动时先 grep `$REPO_ROOT`（即当前 checkout 的仓库路径）里的 `packages/nc-gui/components/smartsheet/grid/canvas/cells/Attachment.ts` 是否含 `isImage(` 调用、`packages/nc-gui/components/cell/attachment/Preview/Thumbnail.vue` 的 `srcs` 计算属性是否含 `isImage(` 短路判断，缺失直接 `[FAIL]` 退出。
+- **已在服务器上对生产 `nocodb-zh:2026.06.1-zh6` 镜像实测通过**：`ALL_ATTACHMENT_SELFCHECKS_PASSED`（三档缩略图 200、视频无 thumbnails、gate 均在）。
+
+未覆盖（后续可选增强）：Carousel 里"同时有图片+视频附件时不出现未找到记录误报 toast"的端到端 UI 断言，目前仍依赖人工冒烟（见升级手册第 8 步），因为需要浏览器自动化而非纯 API 调用。
 
 ## 未做/不做的事
 

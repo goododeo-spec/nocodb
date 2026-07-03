@@ -14,21 +14,25 @@
 
 | 项目 | 值 |
 |---|---|
-| 生产镜像 | `nocodb-zh:2026.06.1-zh6` |
-| 镜像 digest | `sha256:677e07e2508252776f1dd7a70cc1e080d9b86108f394f40e661ce58d1e45762d` |
+| 生产镜像 | `nocodb-zh:2026.06.1-2-git.14e88faae3e7` |
+| 镜像来源 | `zh-release/2026.06.1` @ `14e88fa`，用 `build.sh` 从源码完整重建（frontend `nuxi generate` + backend `rspack`），**不再是** overlay 增量构建的 `zh6` |
 | 对应官方基础镜像 | `nocodb/nocodb@sha256:e5a6ac9cfa59f78b333b491efde4b6cd60bb866b49c76daf92295ef359ef710e`（release `2026.06.1`） |
 | 部署位置 | `root@159.65.133.196:/opt/nocodb`（docker compose：`nocodb`/`worker`/`postgres`/`redis`/`caddy`） |
 | 对象存储 | DigitalOcean Spaces（新加坡区，S3 兼容），附件走 `url` 类型 |
 
+上一个基线 `nocodb-zh:2026.06.1-zh6` 已于本次升级替换下线，镜像本体仍保留在服务器 `docker images` 中未删除，可随时回滚（见下）。
+
 ## 回滚基线
 
-冻结于服务器 `/opt/nocodb/baselines/2026.06.1-zh6/`，包含：
+当前基线冻结于服务器 `/opt/nocodb/baselines/2026.06.1-2-git.14e88faae3e7/`，包含：
 - `docker-compose.yml`、`Caddyfile` 快照
-- `image-digests.txt`（zh1~zh6 全部历史镜像 digest，均保留在本机，未清理）
+- `image-digests.txt`
 - `env-keys.txt`（仅键名，不含密钥值）
 - `ROLLBACK.md`（一键回滚命令 + 冒烟验证命令）
 
-**规则**：每次升级构建产出新 tag 前，先确认这份基线仍然有效（即 `nocodb-zh:2026.06.1-zh6` 镜像仍在本机 `docker images` 中）。升级成功并稳定运行 ≥ 3 天后，才可以把基线滚动更新为新版本（旧基线不删除，重命名归档）。
+上一个基线（`2026.06.1-zh6`）保留归档在 `/opt/nocodb/baselines/2026.06.1-zh6/`，未删除，可作为更早的回退点。
+
+**规则**：每次升级构建产出新 tag 前，先确认当前基线仍然有效（即对应镜像 tag 仍在本机 `docker images` 中）。升级成功并稳定运行 ≥ 3 天后，才可以把基线滚动更新为新版本（旧基线不删除，重命名归档）。
 
 ## 补丁清单（三类）
 
@@ -41,6 +45,7 @@
 | `perf/disable-prefetch-lazy-chunks` | [#14180](https://github.com/nocodb/nocodb/pull/14180) | OPEN | 关闭 Nuxt 对懒加载 chunk 的激进 prefetch（首屏性能） | PR 合并进 `develop` |
 | `fix/attachment-mimetype-backfill` | [#14183](https://github.com/nocodb/nocodb/pull/14183) | OPEN | 上传时按扩展名回填 mimetype，修复 `text/plain` 误判 | PR 合并进 `develop` |
 | `fix/attachment-reload-crash-guard` | [#14196](https://github.com/nocodb/nocodb/pull/14196) | OPEN | 视频不再被当图片加载（grid/carousel/thumbnail 三处 gate）+ `loadRow`/`isURLExpired` 崩溃与误报守卫 | PR 合并进 `develop` |
+| `fix/ime-composition-rename` | [#14203](https://github.com/nocodb/nocodb/pull/14203) | OPEN | 侧边栏重命名（表/视图/base/数据源/扩展）在中日韩输入法组合态下按 Enter 确认候选词会误触发提交并退出编辑；新增 `isComposingKeyEvent` 共享 helper，B 类节点从 `@keyup.enter` 改到 `@keydown.enter.stop.prevent` | PR 合并进 `develop` |
 
 > `i18n-improvements` 分支（commit `dfa48b4`）是 #14171/#14172 拆分前的合并版本，**已废弃**，不再使用，仅作历史记录保留，不参与 cherry-pick。
 
@@ -52,6 +57,7 @@ gh pr view 14172 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14180 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14183 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14203 --repo nocodb/nocodb --json state,mergedAt
 ```
 
 ### B. 部署专用构建配置（长期保留，不上游，收纳进 `deploy/zh-build-config` 分支）
@@ -80,25 +86,28 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 
 - 集成分支命名：`zh-release/<release-tag>`（例如 `zh-release/2026.06.1`），从**官方镜像对应的 release tag** 建立，仅用 `cherry-pick` 叠加补丁 A + B + C，不做 merge，保持线性、可逐条 drop。
 - 完整构建：唯一构建文件是 `Dockerfile.zh`（frontend 从源码 `nuxi generate`，backend 从源码 `rspack` 重建 `docker/index.js`，两者一起 overlay 到官方基础镜像 digest 之上）。历史上的 `Dockerfile.zh4/zh5/zh6` 属于逐层 overlay 增量构建，已归档，不再作为生产构建路径（见仓库 `archive/overlay-builds/` 或对应 commit 历史）。
-- 构建脚本：`build.sh <release-tag>`，产物打不可变 tag `nocodb-zh:<release-tag>-<n>+git.<sha>`。
+- 构建脚本：`build.sh <release-tag>`，产物打不可变 tag `nocodb-zh:<release-tag>-<n>-git.<sha>`（注意分隔符是 `-git.` 不是 `+git.`——Docker tag 语法不允许 `+`，这是首次真实跑 `build.sh` 时才暴露、随后修复的问题，见下）。
 
-### `zh-release/2026.06.1` 已建立（10 个 cherry-pick，线性、无 merge）
+### `zh-release/2026.06.1` 已建立（线性、无 merge）
 
-从 tag `2026.06.1` cherry-pick 顺序：`pr/browser-language-detect` → `pr/field-type-i18n` → `perf/disable-prefetch-lazy-chunks` → `fix/attachment-mimetype-backfill` → `fix/attachment-reload-crash-guard`（2 个 commit）→ `deploy/zh-build-config`（3 个 commit）→ 临时 Crowdin 覆盖（86 条散落翻译）。
+从 tag `2026.06.1` cherry-pick 顺序：`pr/browser-language-detect` → `pr/field-type-i18n` → `perf/disable-prefetch-lazy-chunks` → `fix/attachment-mimetype-backfill` → `fix/attachment-reload-crash-guard`（2 个 commit）→ `deploy/zh-build-config`（3 个 commit）→ `tooling/build-scripts`（`build.sh`/`selfcheck.sh`/`selfcheck-attachments.sh`）→ 临时 Crowdin 覆盖（86 条散落翻译）→ `fix/ime-composition-rename`。
 
 冲突记录（均为文件内容自然增长导致，非逻辑冲突）：
 - `packages/nc-gui/lang/en.json`：cherry-pick `pr/field-type-i18n` 时与 tag 基线的 key 顺序冲突，手工合并保留双方新增 key。
 - `packages/nocodb/rspack.docker.config.js`：该文件历史上被意外夹带进 `fix/attachment-mimetype-backfill` 提交（补丁归类瑕疵，未拆分历史），导致 cherry-pick `deploy/zh-build-config` 的入口切换 commit 时报 modify/delete 冲突；已用该 commit 的最终版本整体落地，`deploy/zh-build-config` 分支上该文件是完整新增而非增量修改。
+- `fix/ime-composition-rename`（`72a089f`）cherry-pick 到 `zh-release/2026.06.1` 时 `ProjectNode.vue`/`Table/Node.vue` 有自然行号偏移，git 自动合并成功，无需人工介入。
 
 **已知与当前线上 `zh6` 的预期差异**（非漂移，是待发布的改进）：`pr/field-type-i18n` 分支（`21d4a4a`）中的字段类型翻译比线上 `zh6` 实际部署的版本（源自更早的组合 commit `3f50d9f`）更新，措辞更贴近飞书多维表格命名（如"单行文本"→"文本"、"合作者"→"人员"、"URL"→"超链接"），且补了 `LinkToAnotherRecord`/`RichText`/`QrCode` 等此前缺失的 key。下次从 `zh-release/2026.06.1` 构建并发布时，这批更好的翻译会随之上线——**这是预期行为**，发布前需要在 changelog/自测里提一句"字段类型中文名有调整"，避免被当成意外改动。
+
+**⚠️ 曾经的真实回归，已修复（记录在案避免再犯）**：`zh-release/2026.06.1` 建立时 `Dockerfile.zh` 的 backend 重建 stage（`FROM node:24-bookworm AS backend` + `rspack --config rspack.docker.config.js` + `COPY --from=backend .../docker/index.js`）在 topic 分支合并/拆分过程中被遗漏——`cfb68a8`（"pin Dockerfile.zh stage2 to backend digest"）落地的其实是最早的纯前端版 `Dockerfile.zh`，而 `deploy/zh-build-config` 里另外两个 commit（`vendor 2 backend files` / `use src/run/local.ts as backend bundle entry`）只添加了 backend 构建需要的*支持文件*（`rspack.docker.config.js`、vendored 源文件），却没有任何 commit 把实际的 backend stage 写回 `Dockerfile.zh`。结果是 `build.sh` 首次真实构建时只 overlay 了前端，**后端补丁（如附件 MIME 回填）被静默丢弃**——`selfcheck.sh` 的 MIME 回填检查当场 `[FAIL]`（上传 `text/plain` 的 `.mp4`，读回仍是 `text/plain`），因此被自动拦下，未流入生产。已用 `14e88fa` 补回 backend stage 并重新验证通过。**教训**：以后任何"补丁清单 B"类改动，验收标准必须是"`selfcheck.sh` 全绿"而不是"`git log` 里有对应 commit"——commit 存在不代表构建产物包含该改动。
 
 ## 可复现构建（`build.sh` + `selfcheck.sh`）
 
 来源分支 `tooling/build-scripts`（已 cherry-pick 进 `zh-release/2026.06.1`）。仓库根目录：
 
-- `build.sh <release-tag>`：要求当前分支必须是干净的 `zh-release/<release-tag>`（工作区有未提交改动会直接拒绝构建——呼应铁律 3"服务器不是构建真相源"）。用 `docker build -f Dockerfile.zh` 构建，自动计算下一个构建序号 `N`，打不可变 tag `nocodb-zh:<release-tag>-<n>+git.<sha>`，然后自动跑 `selfcheck.sh`（后续接入 `selfcheck-attachments.sh`，见 selfcheck 附件专项一节）。
+- `build.sh <release-tag>`：要求当前分支必须是干净的 `zh-release/<release-tag>`（工作区有未提交改动会直接拒绝构建——呼应铁律 3"服务器不是构建真相源"）。用 `docker build -f Dockerfile.zh` 构建，自动计算下一个构建序号 `N`，打不可变 tag `nocodb-zh:<release-tag>-<n>-git.<sha>`（**注意**：最初实现用的是 `+git.<sha>`，首次真实调用时 Docker 直接报 `invalid reference format` 拒绝——Docker tag 语法只允许 `[a-zA-Z0-9_][a-zA-Z0-9._-]*`，不含 `+`。已修复为 `-git.<sha>`），然后自动跑 `selfcheck.sh`（后续接入 `selfcheck-attachments.sh`，见 selfcheck 附件专项一节）。
 - `selfcheck.sh <image-tag>`：通用化自 `mime-fix/selfcheck_zh6.sh`（原来的四份 `selfcheck_zh3~6.sh` 硬编码各自版本 tag，已归档到 `archive/overlay-builds/`）。用**一次性** postgres + 该镜像跑：健康检查 → GUI 是否正常返回（防 zh6 那次"前端不渲染"回归）→ 迁移日志无报错 → 注册/登录 → 上传 `Content-Type: text/plain` 的 `.mp4` 验证 MIME 回填生效。全程隔离容器/网络，退出时清理，不碰生产。
-- 已在服务器上用生产 `nocodb-zh:2026.06.1-zh6` 镜像实测通过：`ALL_SELFCHECKS_PASSED`（health 200 / GUI 200 / MIME 回填 `text/plain` → `video/mp4`）。
+- **首次真实使用**（`zh-release/2026.06.1` 升级为 `nocodb-zh:2026.06.1-2-git.14e88faae3e7` 时）：先后暴露并修复了 tag 分隔符（见上）和 `Dockerfile.zh` backend stage 缺失（见上一节"曾经的真实回归"）两个此前从未被验证过的问题——`selfcheck.sh` 的 MIME 回填检查正是靠这条链路当场拦下了第二个问题，证明了这套自检机制确实起作用。最终 `ALL_SELFCHECKS_PASSED` + `ALL_ATTACHMENT_SELFCHECKS_PASSED` 均通过后才灰度发布。
 - 旧的 `Dockerfile.zh4/zh5/zh6` overlay 增量构建 + 对应版本 selfcheck 脚本已归档至 `archive/overlay-builds/`，附 `README.md` 说明退役原因，不再用于生产构建。
 
 ## 升级手册（上游发新版时）
@@ -130,9 +139,19 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 - 建一个临时 base + 带 Attachment 字段的表；用镜像自带的 `sharp`（`docker exec` 到刚启动的 app 容器里跑）生成一张 >3MB 的测试 JPEG，上传后插入到该字段。轮询读回该行，确认 `thumbnails.tiny` / `thumbnails.small` / `thumbnails.card_cover` 三档都出现，且逐个请求其 `signedPath` 返回 `200`（对生成时序做了重试，避免三档文件写入非原子导致的偶发 404）。
 - 上传一个 `.mp4`，同样流程插入行、读回，确认响应里**不**包含 `thumbnails` 字段。
 - 启动时先 grep `$REPO_ROOT`（即当前 checkout 的仓库路径）里的 `packages/nc-gui/components/smartsheet/grid/canvas/cells/Attachment.ts` 是否含 `isImage(` 调用、`packages/nc-gui/components/cell/attachment/Preview/Thumbnail.vue` 的 `srcs` 计算属性是否含 `isImage(` 短路判断，缺失直接 `[FAIL]` 退出。
-- **已在服务器上对生产 `nocodb-zh:2026.06.1-zh6` 镜像实测通过**：`ALL_ATTACHMENT_SELFCHECKS_PASSED`（三档缩略图 200、视频无 thumbnails、gate 均在）。
+- 已在服务器上对新构建的 `nocodb-zh:2026.06.1-2-git.14e88faae3e7` 镜像实测通过：`ALL_ATTACHMENT_SELFCHECKS_PASSED`（三档缩略图 200、视频无 thumbnails、gate 均在）。
 
-未覆盖（后续可选增强）：Carousel 里"同时有图片+视频附件时不出现未找到记录误报 toast"的端到端 UI 断言，目前仍依赖人工冒烟（见升级手册第 8 步），因为需要浏览器自动化而非纯 API 调用。
+未覆盖（后续可选增强）：Carousel 里"同时有图片+视频附件时不出现未找到记录误报 toast"的端到端 UI 断言，目前仍依赖人工冒烟（见升级手册第 8 步），因为需要浏览器自动化而非纯 API 调用。IME 组合态重命名同理未纳入 `selfcheck.sh`（`isComposing` 是纯前端 DOM 事件语义，无法用 API 断言），本次升级改用浏览器自动化在生产临时账号上直接验证，见下方"2026-07-03 升级记录"。
+
+## 2026-07-03 升级记录：`zh6` → `2026.06.1-2-git.14e88faae3e7`
+
+本次升级只为交付 `fix/ime-composition-rename`，过程顺带完成了"可复现构建"流水线的**首次真实使用**，并修复了两处此前从未被实际构建验证过的问题（tag 分隔符、`Dockerfile.zh` backend stage 缺失，详见上文）。
+
+人工冒烟结果：
+- 健康检查、SPA 路由（`/dashboard`，需 `Accept: text/html`）均 200。
+- IME 重命名：临时账号登录生产环境，用 Chrome DevTools Protocol 在真实 DOM 上派发 `KeyboardEvent('keydown', {key:'Enter', isComposing:true})` 模拟输入法确认候选词——编辑态未退出、`preventDefault` 未触发；随后派发 `isComposing:false` 的 Enter——正常提交、`preventDefault` 触发、表格重命名成功。验证的是 `Table/Node.vue`（A 类）路径；B 类（`@keydown.enter.stop.prevent` 改造）逻辑与 A 类共享同一个 `isComposingKeyEvent` helper，未逐一在生产上重复此实验，风险自评低。
+- 测试用临时账号、临时表、workspace/base 权限、Redis 缓存均已清理，未在生产库留痕迹（除 `nc_audit_v2` 审计记录）。
+- 未做：真实中文输入法逐字敲击的人工点击验证（本次用 CDP 精确构造事件语义代替，覆盖的是代码分支而非输入法软件本身的按键时序）；若后续对结果有疑虑，建议实际用系统输入法在生产上再点一次作为双重确认。
 
 ## 未做/不做的事
 
@@ -147,4 +166,4 @@ gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
   - **需要人工处理**：给 PAT 补上 `workflow` scope 后，`git push origin ci/zh-build-smoke`（分支已在本地 `nocodb-src` 检出里），或者直接在 GitHub 网页端把 `archive`/该 patch 内容手工建一个 PR。
   - 后续如果要推 GHCR 供服务器 `docker pull`（替代当前"服务器就地构建"），需要额外加 registry secret，视需要再做。
 - 补丁清单 A 巡检命令（见上）建议定期跑，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）+ 补丁清单 C（Crowdin 合并前）。可以配 `ci/zh-build-smoke` 里加一个 `schedule` cron job 跑巡检 + 发通知（未实现，属于可选增强的可选增强）。
-  - 本次巡检结果（写文档当天）：#14171 / #14172 / #14180 / #14183 / #14196 全部仍是 `OPEN`，无需从补丁清单移除任何项。
+  - 巡检结果（2026-07-03）：#14171 / #14172 / #14180 / #14183 / #14196 / #14203 全部仍是 `OPEN`，无需从补丁清单移除任何项。

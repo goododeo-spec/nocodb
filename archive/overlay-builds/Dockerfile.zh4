@@ -1,0 +1,25 @@
+# Frontend-only rebuild on top of the already-validated nocodb-zh:2026.06.1-zh3 image.
+# Backend (docker/index.js) is untouched -- only the nc-gui static output changes, since
+# this image only carries a frontend fix (Carousel/useSmartsheetLtarHelpers loadRow guard).
+# Stage 1: build nc-gui static output from source.
+FROM node:24-bookworm AS gui
+
+WORKDIR /repo
+
+RUN npm install -g pnpm@10.16.1
+
+COPY . .
+
+RUN pnpm install --filter "nc-gui..." \
+ && pnpm --filter nocodb-sdk run build \
+ && pnpm --filter nocodb-sdk-v2 run build
+
+RUN cd packages/nc-gui \
+ && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=6144 npx nuxi generate
+
+# Stage 2: overlay the freshly built frontend onto the already-running zh3 image.
+# Backend bundle (docker/index.js) is inherited unchanged from zh3.
+FROM nocodb-zh:2026.06.1-zh3
+
+RUN rm -rf /usr/src/app/docker/nc-gui
+COPY --from=gui /repo/packages/nc-gui/.output/public /usr/src/app/docker/nc-gui

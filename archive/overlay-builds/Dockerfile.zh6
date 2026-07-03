@@ -1,0 +1,34 @@
+# Frontend-only rebuild on top of the already-validated nocodb-zh:2026.06.1-zh3 image.
+# Backend (docker/index.js) is untouched -- only the nc-gui static output changes.
+# This build fixes:
+#  1. Attachment grid cell (Attachment.ts render()) unconditionally tried to load every
+#     attachment through <img> for a thumbnail, including videos -- causing repeated failed
+#     full-file downloads of video attachments on every canvas repaint (root cause of severe
+#     grid load slowness / some attachments never loading).
+#  2. isURLExpired treated any thrown fetch (CORS/network) as 'expired', misfiring the
+#     carousel's reload-on-media-error flow.
+#  3. Video.vue only checked the first candidate source before declaring an error.
+#  4. Carousel.triggerReload had no per-attachment guard against repeated reloads, and its
+#     background loadRow call could pop a 'record not found' toast for a silent self-heal.
+# Stage 1: build nc-gui static output from source.
+FROM node:24-bookworm AS gui
+
+WORKDIR /repo
+
+RUN npm install -g pnpm@10.16.1
+
+COPY . .
+
+RUN pnpm install --filter "nc-gui..." \
+ && pnpm --filter nocodb-sdk run build \
+ && pnpm --filter nocodb-sdk-v2 run build
+
+RUN cd packages/nc-gui \
+ && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=6144 npx nuxi generate
+
+# Stage 2: overlay the freshly built frontend onto the already-validated zh3 image.
+# Backend bundle (docker/index.js) is inherited unchanged from zh3.
+FROM nocodb-zh:2026.06.1-zh3
+
+RUN rm -rf /usr/src/app/docker/nc-gui
+COPY --from=gui /repo/packages/nc-gui/.output/public /usr/src/app/docker/nc-gui

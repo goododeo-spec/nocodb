@@ -47,8 +47,11 @@ docker run -d --name "$APP" --network "$NET" \
   -e NC_DB="pg://$PG:5432?u=nocodb&p=$PASS&d=nocodb" \
   -e NC_AUTH_JWT_SECRET="$JWT" \
   -e NC_DISABLE_TELE=true \
+  -e NC_THUMBNAIL_MAX_SIZE=10485760 \
   -p "$HOST_PORT:8080" \
   "$IMG" >/dev/null
+# NC_THUMBNAIL_MAX_SIZE mirrors the production runtime config (see MAINTENANCE.md
+# "运行时配置") so selfcheck-attachments.sh exercises the same threshold prod uses.
 
 echo "[*] waiting for app to boot + migrate (image=$IMG, port=$HOST_PORT)..."
 BOOTED=0

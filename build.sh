@@ -64,7 +64,7 @@ if [ -x "$SCRIPT_DIR/selfcheck-attachments.sh" ] && [ -n "$APP_TO_CLEAN" ]; then
   echo "[*] running attachment-specific selfcheck against the still-running $APP_TO_CLEAN"
   HOST_PORT="$(cat /tmp/.selfcheck-last-port)"
   TOKEN="$(cat /tmp/.selfcheck-last-token)"
-  "$SCRIPT_DIR/selfcheck-attachments.sh" "$HOST_PORT" "$TOKEN" "$REPO_ROOT" \
+  "$SCRIPT_DIR/selfcheck-attachments.sh" "$HOST_PORT" "$TOKEN" "$REPO_ROOT" "$APP_TO_CLEAN" \
     || { echo "[FAIL] attachment selfcheck failed"; docker rm -f "$APP_TO_CLEAN" "$PG_TO_CLEAN" >/dev/null 2>&1; docker network rm "$NET_TO_CLEAN" >/dev/null 2>&1; exit 1; }
 fi
 

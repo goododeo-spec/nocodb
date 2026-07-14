@@ -120,17 +120,6 @@ if ! docker exec "$PG" psql -U nocodb -d nocodb -Atc \
 fi
 echo "[OK] access-request migration table present"
 
-# Anonymous create must be rejected.
-ANON_CODE=$(curl -s -o /tmp/selfcheck-anon-ar.json -w '%{http_code}' \
-  -X POST "http://127.0.0.1:$HOST_PORT/api/v2/meta/shared-bases/00000000-0000-0000-0000-000000000000/access-requests" \
-  -H 'Content-Type: application/json' \
-  -d '{}')
-if [ "$ANON_CODE" != "401" ] && [ "$ANON_CODE" != "403" ]; then
-  echo "[FAIL] anonymous access-request create expected 401/403, got $ANON_CODE"
-  cat /tmp/selfcheck-anon-ar.json; exit 1
-fi
-echo "[OK] anonymous access-request create blocked ($ANON_CODE)"
-
 # Create a base, enable shared link, and exercise authenticated request APIs.
 BASE_JSON=$(curl -s -X POST "http://127.0.0.1:$HOST_PORT/api/v2/meta/bases" \
   -H "xc-auth: $TOKEN" -H 'Content-Type: application/json' \
@@ -152,6 +141,19 @@ if [ -z "$SHARED_UUID" ]; then
   echo "[FAIL] could not enable shared base: $SHARED_JSON"; exit 1
 fi
 echo "[OK] shared base enabled uuid=$SHARED_UUID"
+
+# Anonymous create against a real shared UUID must be rejected. A fake UUID
+# is resolved by ACL extraction first and correctly returns 404, which does
+# not exercise the authentication boundary.
+ANON_CODE=$(curl -s -o /tmp/selfcheck-anon-ar.json -w '%{http_code}' \
+  -X POST "http://127.0.0.1:$HOST_PORT/api/v2/meta/shared-bases/$SHARED_UUID/access-requests" \
+  -H 'Content-Type: application/json' \
+  -d '{}')
+if [ "$ANON_CODE" != "401" ] && [ "$ANON_CODE" != "403" ]; then
+  echo "[FAIL] anonymous access-request create expected 401/403, got $ANON_CODE"
+  cat /tmp/selfcheck-anon-ar.json; exit 1
+fi
+echo "[OK] anonymous access-request create blocked ($ANON_CODE)"
 
 OWNER_STATUS=$(curl -s -X GET "http://127.0.0.1:$HOST_PORT/api/v2/meta/shared-bases/$SHARED_UUID/access-requests" \
   -H "xc-auth: $TOKEN")

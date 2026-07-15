@@ -164,6 +164,15 @@ gh pr view 14276 --repo nocodb/nocodb --json state,mergedAt
 - 新部署快照冻结于 `/opt/nocodb/baselines/2026.06.1-6-git.d26a8b02e8f9/`；立即回滚基线暂保留上一稳定版本，待新镜像稳定运行满 3 天后再提升。
 - 构建期间发现当前安装只运行日期命名的 `XcMigrationSourcev0`；保留 v2 `nc_099` 供旧升级路径，同时补充 v0 migration。另修正 smoke：假 UUID会先在 ID 提取阶段返回 404，因此匿名鉴权必须对真实 shared UUID 断言 401。
 
+### 2026-07-15 共享页登录状态修复
+
+- 功能分支新增 `cfdffde` / `02375b2`，发布分支对应 `df53970` / `3d0ad3f`。共享路由继续把业务 `token` 置空，另从持久存储只读解析账号用于 UI；`useApi` 的共享 Base 请求仍删除 `xc-auth`。
+- 移除共享视图的“免费注册”及 `app.nocodb.com` 链接。普通共享视图和共享 Base 均改为：游客只显示本实例“登录”，登录后回流 `/request-base-access?base=<uuid>`；有持久会话时显示头像、账号和“已登录”，并显示“申请编辑”与次级复制入口。
+- 首次构建 `nocodb-zh:2026.06.1-7-git.df5397078441` 后，真实 Chrome 冒烟发现 `/base/:uuid` 使用 `GeneralShareProject` 顶栏而非 `shared-view` layout，因此该镜像虽通过静态测试和 selfcheck，但未完成目标 UI，随即补齐实际 Base 顶栏并被 `-8` 取代。
+- 最终生产镜像为 `nocodb-zh:2026.06.1-8-git.3d0ad3f9a934`。完整 `build.sh`、共享申请 smoke 和附件专项均通过，`nocodb`/`worker` 均健康。
+- 真实 Chrome 在生产公开 Base 验证：游客仅见“登录”，无“免费注册”及“申请编辑”；注入有效持久会话后显示头像、“已登录”、账号和“申请编辑”；捕获 29 个 API 请求，均无 `xc-auth`。测试仅写隔离浏览器 localStorage，未创建生产账号或数据库记录。
+- 部署时执行 `docker compose up -d worker` 因 `worker` 的 `depends_on: nocodb` 且两个服务镜像引用同时变更，Compose 实际同时重建了 `nocodb` 与 `worker`，未形成预期的严格两步灰度；两服务均一次启动健康。后续若要求严格 worker-first，应分别修改服务镜像引用，或使用不会级联重建依赖服务的部署方式。
+
 ## 未做/不做的事
 
 - 不改 NocoDB 业务代码之外的范围（本轮 bug 均已提交对应 PR，见补丁清单 A）。

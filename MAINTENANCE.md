@@ -14,29 +14,29 @@
 
 | 项目 | 值 |
 |---|---|
-| 生产镜像 | `nocodb-zh:2026.06.1-2-git.14e88faae3e7` |
-| 镜像来源 | `zh-release/2026.06.1` @ `14e88fa`，用 `build.sh` 从源码完整重建（frontend `nuxi generate` + backend `rspack`），**不再是** overlay 增量构建的 `zh6` |
+| 生产镜像 | `nocodb-zh:2026.06.1-6-git.d26a8b02e8f9` |
+| 镜像来源 | `zh-release/2026.06.1` @ `d26a8b0`，用 `build.sh` 完整重建并通过基础、附件及共享 Base 申请/审批 smoke |
 | 对应官方基础镜像 | `nocodb/nocodb@sha256:e5a6ac9cfa59f78b333b491efde4b6cd60bb866b49c76daf92295ef359ef710e`（release `2026.06.1`） |
 | 部署位置 | `root@159.65.133.196:/opt/nocodb`（docker compose：`nocodb`/`worker`/`postgres`/`redis`/`caddy`） |
 | 对象存储 | DigitalOcean Spaces（新加坡区，S3 兼容），附件走 `url` 类型 |
 
-上一个基线 `nocodb-zh:2026.06.1-zh6` 已于本次升级替换下线，镜像本体仍保留在服务器 `docker images` 中未删除，可随时回滚（见下）。
+上一个生产镜像 `nocodb-zh:2026.06.1-2-git.14e88faae3e7` 已替换下线，镜像本体和冻结基线仍保留，可随时回滚。
 
 ## 回滚基线
 
-当前基线冻结于服务器 `/opt/nocodb/baselines/2026.06.1-2-git.14e88faae3e7/`，包含：
+当前立即回滚基线仍冻结于服务器 `/opt/nocodb/baselines/2026.06.1-2-git.14e88faae3e7/`；新部署快照位于 `/opt/nocodb/baselines/2026.06.1-6-git.d26a8b02e8f9/`，稳定运行满 3 天后再提升为当前基线。两者均包含：
 - `docker-compose.yml`、`Caddyfile` 快照
 - `image-digests.txt`
 - `env-keys.txt`（仅键名，不含密钥值）
 - `ROLLBACK.md`（一键回滚命令 + 冒烟验证命令）
 
-上一个基线（`2026.06.1-zh6`）保留归档在 `/opt/nocodb/baselines/2026.06.1-zh6/`，未删除，可作为更早的回退点。
+更早基线（`2026.06.1-zh6`）保留归档在 `/opt/nocodb/baselines/2026.06.1-zh6/`，未删除。
 
 **规则**：每次升级构建产出新 tag 前，先确认当前基线仍然有效（即对应镜像 tag 仍在本机 `docker images` 中）。升级成功并稳定运行 ≥ 3 天后，才可以把基线滚动更新为新版本（旧基线不删除，重命名归档）。
 
 ## 补丁清单（三类）
 
-### A. 可上游代码补丁（5 个 PR，全部 OPEN，合并后即删除本地对应分支/cherry-pick）
+### A. 可上游代码补丁（全部 OPEN，合并后即删除本地对应分支/cherry-pick）
 
 | 分支 | PR | 状态 | 内容 | drop 条件 |
 |---|---|---|---|---|
@@ -46,6 +46,7 @@
 | `fix/attachment-mimetype-backfill` | [#14183](https://github.com/nocodb/nocodb/pull/14183) | OPEN | 上传时按扩展名回填 mimetype，修复 `text/plain` 误判 | PR 合并进 `develop` |
 | `fix/attachment-reload-crash-guard` | [#14196](https://github.com/nocodb/nocodb/pull/14196) | OPEN | 视频不再被当图片加载（grid/carousel/thumbnail 三处 gate）+ `loadRow`/`isURLExpired` 崩溃与误报守卫 | PR 合并进 `develop` |
 | `fix/ime-composition-rename` | [#14203](https://github.com/nocodb/nocodb/pull/14203) | OPEN | 侧边栏重命名（表/视图/base/数据源/扩展）在中日韩输入法组合态下按 Enter 确认候选词会误触发提交并退出编辑；新增 `isComposingKeyEvent` 共享 helper，B 类节点从 `@keyup.enter` 改到 `@keydown.enter.stop.prevent` | PR 合并进 `develop` |
+| `feat/shared-base-access-request` | [#14276](https://github.com/nocodb/nocodb/pull/14276) | OPEN | 共享 Base 申请编辑：公开链接保持 viewer；登录后申请 editor；owner/creator 铃铛+访问管理审批；批准写入真实 `BaseUser.editor`；Copy Base 降为次要操作 | PR 合并进 `develop` |
 
 > `i18n-improvements` 分支（commit `dfa48b4`）是 #14171/#14172 拆分前的合并版本，**已废弃**，不再使用，仅作历史记录保留，不参与 cherry-pick。
 
@@ -58,6 +59,7 @@ gh pr view 14180 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14183 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14196 --repo nocodb/nocodb --json state,mergedAt
 gh pr view 14203 --repo nocodb/nocodb --json state,mergedAt
+gh pr view 14276 --repo nocodb/nocodb --json state,mergedAt
 ```
 
 ### B. 部署专用构建配置（长期保留，不上游，收纳进 `deploy/zh-build-config` 分支）
@@ -153,6 +155,15 @@ gh pr view 14203 --repo nocodb/nocodb --json state,mergedAt
 - 测试用临时账号、临时表、workspace/base 权限、Redis 缓存均已清理，未在生产库留痕迹（除 `nc_audit_v2` 审计记录）。
 - 未做：真实中文输入法逐字敲击的人工点击验证（本次用 CDP 精确构造事件语义代替，覆盖的是代码分支而非输入法软件本身的按键时序）；若后续对结果有疑虑，建议实际用系统输入法在生产上再点一次作为双重确认。
 
+## 2026-07-14 升级记录：共享 Base 申请编辑
+
+- 上游 PR：[nocodb/nocodb#14276](https://github.com/nocodb/nocodb/pull/14276)，功能分支 `feat/shared-base-access-request`。
+- 发布分支 `zh-release/2026.06.1` 构建镜像 `nocodb-zh:2026.06.1-6-git.d26a8b02e8f9`；`worker` 先切换，随后切换 `nocodb`，两者均健康。
+- `build.sh` 全量重建通过；`selfcheck.sh` 新增共享 Base 申请 smoke，验证迁移表、匿名 401、重复 pending 幂等、owner 批准以及批准后真实 editor 权限；附件专项 selfcheck 同时通过。
+- 生产公开链接 `/base/cf9c1257-2235-48f2-bf8d-674bc0b3b940` 返回 HTML 200；生产库存在 `nc_shared_base_access_requests`，公开链接仍保持 viewer 隔离。
+- 新部署快照冻结于 `/opt/nocodb/baselines/2026.06.1-6-git.d26a8b02e8f9/`；立即回滚基线暂保留上一稳定版本，待新镜像稳定运行满 3 天后再提升。
+- 构建期间发现当前安装只运行日期命名的 `XcMigrationSourcev0`；保留 v2 `nc_099` 供旧升级路径，同时补充 v0 migration。另修正 smoke：假 UUID会先在 ID 提取阶段返回 404，因此匿名鉴权必须对真实 shared UUID 断言 401。
+
 ## 未做/不做的事
 
 - 不改 NocoDB 业务代码之外的范围（本轮 bug 均已提交对应 PR，见补丁清单 A）。
@@ -166,4 +177,4 @@ gh pr view 14203 --repo nocodb/nocodb --json state,mergedAt
   - **需要人工处理**：给 PAT 补上 `workflow` scope 后，`git push origin ci/zh-build-smoke`（分支已在本地 `nocodb-src` 检出里），或者直接在 GitHub 网页端把 `archive`/该 patch 内容手工建一个 PR。
   - 后续如果要推 GHCR 供服务器 `docker pull`（替代当前"服务器就地构建"），需要额外加 registry secret，视需要再做。
 - 补丁清单 A 巡检命令（见上）建议定期跑，合并的 PR 从清单移除，让 fork 逐步瘦身到只剩补丁清单 B（3 个部署配置 commit）+ 补丁清单 C（Crowdin 合并前）。可以配 `ci/zh-build-smoke` 里加一个 `schedule` cron job 跑巡检 + 发通知（未实现，属于可选增强的可选增强）。
-  - 巡检结果（2026-07-03）：#14171 / #14172 / #14180 / #14183 / #14196 / #14203 全部仍是 `OPEN`，无需从补丁清单移除任何项。
+  - 巡检结果（2026-07-15）：#14171 / #14172 / #14180 / #14183 / #14196 / #14203 / #14276 全部仍是 `OPEN`，无需从补丁清单移除任何项。

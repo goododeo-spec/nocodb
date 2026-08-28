@@ -1,0 +1,36 @@
+{
+  "collected_at": "2026-08-28T08:01:00+08:00",
+  "plugin": { "id": "aws-s3", "title": "S3", "active": true, "acl": "public-read" },
+  "bucket": "ainew-sin-doc01",
+  "region": "sgp1",
+  "video_stats": { "mp4_count": 51412, "avg_mb": 0.8, "max_mb": 47.2 },
+  "unsigned_get": "200",
+  "range": "206",
+  "sample": {
+    "codec": "h264+aac",
+    "resolution": "768x1376",
+    "duration_s": 5.167,
+    "size_bytes": 1320142,
+    "moov_before_mdat": true,
+    "origin_1mb_ttfb_s": 0.573,
+    "origin_full_total_s": 11.697,
+    "cdn_1mb_ttfb_s": 0.158
+  },
+  "notes": [
+    "Production zh-release already contains #14196 image gates.",
+    "Spaces CDN does not cache presigned URLs; private videos cannot use unsigned CDN.",
+    "Click-to-play still crosses the origin link; first-frame improvement depends on media size and later private CDN."
+  ],
+  "evaluation": {
+    "unsigned_after_acl_probe": "403",
+    "signed_after_acl_probe": "200/206",
+    "new_upload_acl": "private",
+    "preload_none": true,
+    "image_gate_verified": true,
+    "pilot_remux_count": 6,
+    "first_frame_p95_improved_30_percent": false,
+    "reason": "Representative clips already had moov-before-mdat. Remaining delay is CN-to-Singapore origin throughput (~100-700KB/s). Private Spaces CDN cannot cache presigned URLs. An edge-auth CDN signer was prototyped but is NOT shipped; it is parked on branch archive/cdn-url-signer with its known defects listed in that commit message.",
+    "stop_mvp": true,
+    "provision_private_cdn": false
+  }
+}

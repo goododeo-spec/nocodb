@@ -27,12 +27,28 @@ for f in "$GATE_FILE_1" "$GATE_FILE_2"; do
   if [ ! -f "$f" ]; then
     echo "[FAIL] expected gated file missing: $f"; exit 1
   fi
-  if ! grep -q "isImage(" "$f"; then
-    echo "[FAIL] $f no longer calls isImage() -- the video-as-image regression gate may have been reverted"
+  # getImagePreviewCandidates/canLoadAttachmentAsImage (utils/fileUtils.ts) are the only
+  # callers allowed to hand a URL to an <img>; a bare isImage() check is not enough because
+  # it still lets a thumbnail-less video through as its raw multi-MB source URL.
+  if ! grep -q "getImagePreviewCandidates(\|canLoadAttachmentAsImage(" "$f"; then
+    echo "[FAIL] $f no longer routes through the image-preview gate -- the video-as-image regression gate may have been reverted"
     exit 1
   fi
 done
 echo "[OK] non-image render gate present in both files"
+
+echo "[*] source gate check: video player must not preload media before playback..."
+VIDEO_FILE="$REPO_ROOT/packages/nc-gui/components/cell/attachment/Preview/Video.vue"
+if [ ! -f "$VIDEO_FILE" ]; then
+  echo "[FAIL] expected gated file missing: $VIDEO_FILE"; exit 1
+fi
+VIDEO_TAGS=$(grep -c "<video" "$VIDEO_FILE")
+PRELOAD_NONE=$(grep -c 'preload="none"' "$VIDEO_FILE")
+if [ "$VIDEO_TAGS" -eq 0 ] || [ "$PRELOAD_NONE" -ne "$VIDEO_TAGS" ]; then
+  echo "[FAIL] $VIDEO_FILE has $VIDEO_TAGS <video> tag(s) but $PRELOAD_NONE preload=\"none\" -- every player must stay lazy"
+  exit 1
+fi
+echo "[OK] all $VIDEO_TAGS <video> tag(s) declare preload=\"none\""
 
 echo "[*] creating throwaway base/table with an Attachment column..."
 BASE_ID=$(curl -s -X POST "$BASE_URL/api/v1/db/meta/projects" \

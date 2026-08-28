@@ -56,6 +56,7 @@ const handleError = async () => {
       ref="videoPlayer"
       controls
       playsinline
+      preload="none"
       :src="props.src[0]"
       :class="{
         [props.class]: props.class,
@@ -69,6 +70,7 @@ const handleError = async () => {
     ref="videoPlayer"
     controls
     playsinline
+    preload="none"
     :class="{
       [props.class]: props.class,
     }"

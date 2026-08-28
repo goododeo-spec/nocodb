@@ -1,7 +1,17 @@
 import { isBoxHovered, renderIconButton, roundedRect } from '../utils/canvas'
 import { pxToRowHeight } from '../../../../../utils/cell'
 import type { RenderRectangleProps } from '../utils/types'
-import { isAudio, isExcel, isPdf, isPresentation, isVideo, isWord, isZip } from '../../../../../utils/fileUtils'
+import {
+  canLoadAttachmentAsImage,
+  getImagePreviewCandidates,
+  isAudio,
+  isExcel,
+  isPdf,
+  isPresentation,
+  isVideo,
+  isWord,
+  isZip,
+} from '../../../../../utils/fileUtils'
 import useAttachment from '../../../../../composables/useAttachment'
 
 interface Attachment {
@@ -212,7 +222,7 @@ export const AttachmentCellRenderer: CellRenderer = {
       // (scroll/hover/selection), this saturates the per-origin connection limit and starves
       // real image loads, causing widespread slow/failed loading across the grid. See
       // handleHover/handleClick below, which already gate this the same way.
-      const thumbnailUrls = isImage(item.title, item.mimetype || item.type) ? getPossibleAttachmentSrc(item, size) : undefined
+      const thumbnailUrls = getImagePreviewCandidates(item, size, getPossibleAttachmentSrc)
 
       let thumbnailLoaded = false
 
@@ -399,9 +409,9 @@ export const AttachmentCellRenderer: CellRenderer = {
       const itemX = rowStartX + col * (itemSize + gap)
       const itemY = y + verticalPadding + row * (itemSize + gap)
 
-      if (isImage(item.title, item.mimetype || item.type)) {
-        const size = getAttachmentSize(rowHeight)
-        const url = getPossibleAttachmentSrc(item, size)?.[0]
+      const size = getAttachmentSize(rowHeight)
+      if (canLoadAttachmentAsImage(item, size)) {
+        const url = getImagePreviewCandidates(item, size, getPossibleAttachmentSrc)?.[0]
 
         if (!url) {
           // broken_image
@@ -517,9 +527,9 @@ export const AttachmentCellRenderer: CellRenderer = {
       const itemX = rowStartX + col * (itemSize + gap)
       const itemY = y + verticalPadding + row * (itemSize + gap)
 
-      if (isImage(item.title, item.mimetype || item.type)) {
-        const size = getAttachmentSize(rowHeight)
-        const url = getPossibleAttachmentSrc(item, size)?.[0]
+      const size = getAttachmentSize(rowHeight)
+      if (canLoadAttachmentAsImage(item, size)) {
+        const url = getImagePreviewCandidates(item, size, getPossibleAttachmentSrc)?.[0]
 
         if (!url) {
           // broken_image

@@ -115,7 +115,74 @@ const isPreviewSupportedFile = (name: string, mimetype?: string) => {
   return isImage(name, mimetype) || isVideo(name, mimetype) || isAudio(name, mimetype) || isPdf(name, mimetype)
 }
 
-export { isImage, imageExt, isVideo, isPdf, isOffice, isAudio, isZip, isWord, isExcel, isPresentation, isPreviewSupportedFile }
+type AttachmentThumbnailSize = 'card_cover' | 'tiny' | 'small'
+
+interface ThumbnailRef {
+  signedUrl?: string
+  signedPath?: string
+  url?: string
+  path?: string
+}
+
+interface PreviewableAttachment {
+  title?: string
+  mimetype?: string
+  type?: string
+  signedUrl?: string
+  url?: string
+  thumbnails?: Partial<Record<AttachmentThumbnailSize, ThumbnailRef>>
+}
+
+const hasGeneratedThumbnail = (attachment?: PreviewableAttachment | null, size: AttachmentThumbnailSize = 'tiny') => {
+  const thumb = attachment?.thumbnails?.[size]
+  return Boolean(thumb?.signedUrl || thumb?.signedPath || thumb?.url || thumb?.path)
+}
+
+/**
+ * Only images, and non-images that carry a generated thumbnail, may reach an `<img>` tag.
+ * Pointing `<img>` at a video downloads megabytes before the browser can fail on it, which
+ * saturates the per-origin connection limit and starves the real image loads around it.
+ */
+const canLoadAttachmentAsImage = (attachment?: PreviewableAttachment | null, size: AttachmentThumbnailSize = 'tiny') => {
+  if (hasGeneratedThumbnail(attachment, size)) return true
+  return Boolean(isImage(attachment?.title as string, attachment?.mimetype || attachment?.type))
+}
+
+const getImagePreviewCandidates = (
+  attachment: PreviewableAttachment | null | undefined,
+  size: AttachmentThumbnailSize | undefined,
+  resolveSrcs: (item: Record<string, any>, thumbnail?: AttachmentThumbnailSize) => string[],
+) => {
+  if (!attachment) return []
+
+  if (size && hasGeneratedThumbnail(attachment, size)) {
+    return resolveSrcs(attachment.thumbnails![size] as Record<string, any>)
+  }
+
+  if (isImage(attachment.title as string, attachment.mimetype || attachment.type)) {
+    return resolveSrcs(attachment, size)
+  }
+
+  return []
+}
+
+export type { AttachmentThumbnailSize, PreviewableAttachment }
+export {
+  isImage,
+  imageExt,
+  isVideo,
+  isPdf,
+  isOffice,
+  isAudio,
+  isZip,
+  isWord,
+  isExcel,
+  isPresentation,
+  isPreviewSupportedFile,
+  hasGeneratedThumbnail,
+  canLoadAttachmentAsImage,
+  getImagePreviewCandidates,
+}
 // Ref : https://stackoverflow.com/a/12002275
 
 // Tested in Mozilla Firefox browser, Chrome

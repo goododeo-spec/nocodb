@@ -9,6 +9,10 @@ import Noco from '~/Noco';
 import NocoCache from '~/cache/NocoCache';
 import { CacheGetType, CacheScope } from '~/utils/globals';
 import { getPathFromUrl, isPreviewAllowed } from '~/helpers/attachmentHelpers';
+import {
+  readCdnSignerConfigFromEnv,
+  signPreviewCdnUrl,
+} from '~/helpers/cdnUrlSigner';
 import { parseMetaProp } from '~/utils/modelUtils';
 import { processConcurrently } from '~/utils/dataUtils';
 
@@ -206,11 +210,16 @@ export default class PresignedUrl {
     const storageAdapter = await NcPluginMgrv2.storageAdapter(ncMeta);
 
     if (typeof (storageAdapter as any).getSignedUrl === 'function') {
-      tempUrl = await (storageAdapter as any).getSignedUrl(
-        path,
-        expiresInSeconds,
-        pathParameters,
-      );
+      tempUrl =
+        signPreviewCdnUrl(readCdnSignerConfigFromEnv(), {
+          objectKey: path,
+          preview,
+        }) ||
+        (await (storageAdapter as any).getSignedUrl(
+          path,
+          expiresInSeconds,
+          pathParameters,
+        ));
       await this.add({
         path: cachePath,
         url: tempUrl,
